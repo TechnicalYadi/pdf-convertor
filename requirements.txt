@@ -2,3 +2,4 @@ Flask
 reportlab
 python-docx
 gunicorn
+requests
