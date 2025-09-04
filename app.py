@@ -1,20 +1,24 @@
 from flask import Flask, request, send_file, render_template_string
+from docx2pdf import convert
 from PIL import Image
-import pypandoc
 import os
+import pythoncom   # Fix for CoInitialize error
 
 app = Flask(__name__)
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# --- DOCX → PDF (Linux via Pandoc) ---
+# --- DOCX → PDF using MS Word ---
 def convert_docx_to_pdf(file):
     filepath = os.path.join(UPLOAD_DIR, file.filename)
     file.save(filepath)
 
+    # Fix COM threading issue in Flask
+    pythoncom.CoInitialize()
+    convert(filepath)   # DOCX → PDF
+    pythoncom.CoUninitialize()
+
     output_path = filepath.replace(".docx", ".pdf")
-    # Pandoc convert DOCX → PDF
-    pypandoc.convert_file(filepath, "pdf", outputfile=output_path)
     return output_path
 
 # --- Images → PDF ---
