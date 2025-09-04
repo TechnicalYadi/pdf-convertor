@@ -1,6 +1,5 @@
 Flask
-Pillow
-PyPDF2
 pypandoc
-docx2pdf
+PyPDF2
+reportlab
 gunicorn
