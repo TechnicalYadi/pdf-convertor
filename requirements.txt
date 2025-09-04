@@ -1,5 +1,3 @@
-Flask
-reportlab
-python-docx
-gunicorn
+flask
+cloudconvert
 requests

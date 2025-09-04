@@ -1,48 +1,89 @@
+from flask import Flask, request, render_template_string, send_file
+import cloudconvert
 import os
 import requests
-from flask import Flask, request, render_template, send_file
 
 app = Flask(__name__)
 
-# Apni API Key yaha daalo
-API_KEY = "eyJ0eXAiOiJK...v4q4UM"   # 👈 yaha apna pura token paste karo
+# CloudConvert API Key from environment variable
+API_KEY = os.getenv("CLOUDCONVERT_API_KEY")
+cloudconvert.configure(api_key=API_KEY)
+
+# HTML Template
+HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DOCX to PDF Converter</title>
+    <style>
+        body { font-family: Arial; background: #f0f0f0; text-align: center; padding: 50px; }
+        .box { background: white; padding: 30px; border-radius: 15px; box-shadow: 0px 5px 20px rgba(0,0,0,0.2); display: inline-block; }
+        input[type=file] { margin: 20px; }
+        button { padding: 10px 20px; border: 2px solid black; border-radius: 10px; background: none; cursor: pointer; transition: 0.3s; }
+        button:hover { background: black; color: white; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>DOCX → PDF Converter</h2>
+        <form method="POST" action="/convert" enctype="multipart/form-data">
+            <input type="file" name="file" required>
+            <br>
+            <button type="submit">Convert</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template_string(HTML)
 
 @app.route('/convert', methods=['POST'])
 def convert_file():
-    file = request.files['file']
-    
-    # CloudConvert API upload request
-    upload_task = requests.post(
-        'https://api.cloudconvert.com/v2/import/upload',
-        headers={"Authorization": f"Bearer {API_KEY}"}
-    ).json()
+    uploaded_file = request.files['file']
+    if not uploaded_file.filename.endswith(".docx"):
+        return "Please upload a DOCX file only."
 
-    upload_url = upload_task['data']['result']['form']['url']
-    form_data = upload_task['data']['result']['form']['parameters']
+    input_path = "input.docx"
+    output_path = "output.pdf"
+    uploaded_file.save(input_path)
 
-    files = {'file': (file.filename, file.stream, file.mimetype)}
-
-    # File upload
-    requests.post(upload_url, data=form_data, files=files)
-
-    # Conversion task
-    convert_task = requests.post(
-        'https://api.cloudconvert.com/v2/convert',
-        headers={"Authorization": f"Bearer {API_KEY}"},
-        json={
-            "input": "upload",
-            "file": upload_task['data']['id'],
-            "output_format": "pdf"   # 👈 yaha tum format change kar sakte ho
+    # Create CloudConvert Job
+    job = cloudconvert.Job.create(payload={
+        "tasks": {
+            "import-my-file": {
+                "operation": "import/upload"
+            },
+            "convert-my-file": {
+                "operation": "convert",
+                "input": "import-my-file",
+                "input_format": "docx",
+                "output_format": "pdf",
+            },
+            "export-my-file": {
+                "operation": "export/url",
+                "input": "convert-my-file"
+            }
         }
-    ).json()
+    })
 
-    # Download link
-    file_url = convert_task['data']['result']['files'][0]['url']
-    return f"Converted File: <a href='{file_url}'>Download Here</a>"
+    # Upload DOCX file
+    upload_task = job["tasks"][0]
+    cloudconvert.Task.upload(upload_task, input_path)
+
+    # Wait for job to complete
+    job = cloudconvert.Job.wait(job["id"])
+    export_task = [t for t in job["tasks"] if t["name"] == "export-my-file"][0]
+    file_url = export_task["result"]["files"][0]["url"]
+
+    # Download the PDF
+    r = requests.get(file_url)
+    with open(output_path, 'wb') as f:
+        f.write(r.content)
+
+    return send_file(output_path, as_attachment=True)
 
 if __name__ == "__main__":
     app.run(debug=True)
