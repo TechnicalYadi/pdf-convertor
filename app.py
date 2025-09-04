@@ -1,99 +1,48 @@
-from flask import Flask, request, render_template_string, send_file
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from docx import Document
-import os, uuid
+import os
+import requests
+from flask import Flask, request, render_template, send_file
 
 app = Flask(__name__)
 
-# HTML UI
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PDF Converter</title>
-  <style>
-    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-    h1 { color: #333; }
-    form { margin: 20px auto; padding: 20px; border: 2px solid #333; border-radius: 12px; max-width: 400px; background: #f9f9f9; }
-    input[type=file] { margin: 15px 0; }
-    button {
-      padding: 10px 20px; border: 2px solid #333; background: white; border-radius: 8px;
-      cursor: pointer; font-size: 16px; transition: 0.3s;
-    }
-    button:hover { background: #333; color: white; }
-  </style>
-</head>
-<body>
-  <h1>📄 Free PDF Converter</h1>
-  <form method="POST" action="/convert" enctype="multipart/form-data">
-    <input type="file" name="file" accept=".docx,.txt" required><br>
-    <button type="submit">Convert to PDF</button>
-  </form>
-</body>
-</html>
-"""
+# Apni API Key yaha daalo
+API_KEY = "eyJ0eXAiOiJK...v4q4UM"   # 👈 yaha apna pura token paste karo
 
-def txt_to_pdf(input_path, output_path):
-    with open(input_path, "r", encoding="utf-8", errors="ignore") as f:
-        lines = f.readlines()
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-    c = canvas.Canvas(output_path, pagesize=letter)
-    width, height = letter
-    y = height - 50
+@app.route('/convert', methods=['POST'])
+def convert_file():
+    file = request.files['file']
+    
+    # CloudConvert API upload request
+    upload_task = requests.post(
+        'https://api.cloudconvert.com/v2/import/upload',
+        headers={"Authorization": f"Bearer {API_KEY}"}
+    ).json()
 
-    for line in lines:
-        c.drawString(50, y, line.strip())
-        y -= 15
-        if y < 50:
-            c.showPage()
-            y = height - 50
-    c.save()
+    upload_url = upload_task['data']['result']['form']['url']
+    form_data = upload_task['data']['result']['form']['parameters']
 
-def docx_to_pdf(input_path, output_path):
-    doc = Document(input_path)
-    c = canvas.Canvas(output_path, pagesize=letter)
-    width, height = letter
-    y = height - 50
+    files = {'file': (file.filename, file.stream, file.mimetype)}
 
-    for para in doc.paragraphs:
-        text = para.text
-        c.drawString(50, y, text)
-        y -= 15
-        if y < 50:
-            c.showPage()
-            y = height - 50
-    c.save()
+    # File upload
+    requests.post(upload_url, data=form_data, files=files)
 
-@app.route("/")
-def home():
-    return render_template_string(HTML_TEMPLATE)
+    # Conversion task
+    convert_task = requests.post(
+        'https://api.cloudconvert.com/v2/convert',
+        headers={"Authorization": f"Bearer {API_KEY}"},
+        json={
+            "input": "upload",
+            "file": upload_task['data']['id'],
+            "output_format": "pdf"   # 👈 yaha tum format change kar sakte ho
+        }
+    ).json()
 
-@app.route("/convert", methods=["POST"])
-def convert():
-    uploaded_file = request.files["file"]
-    if uploaded_file.filename == "":
-        return "❌ No file selected."
-
-    # Temporary save
-    input_path = f"/tmp/{uuid.uuid4()}_{uploaded_file.filename}"
-    uploaded_file.save(input_path)
-    output_path = input_path.rsplit(".", 1)[0] + ".pdf"
-
-    ext = uploaded_file.filename.lower().split(".")[-1]
-    try:
-        if ext == "txt":
-            txt_to_pdf(input_path, output_path)
-        elif ext == "docx":
-            docx_to_pdf(input_path, output_path)
-        else:
-            return "❌ Only .txt and .docx supported."
-    except Exception as e:
-        return f"⚠️ Conversion failed: {str(e)}"
-
-    return send_file(output_path, as_attachment=True)
+    # Download link
+    file_url = convert_task['data']['result']['files'][0]['url']
+    return f"Converted File: <a href='{file_url}'>Download Here</a>"
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(debug=True)
