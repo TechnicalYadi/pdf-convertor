@@ -1,5 +1,4 @@
 Flask
-pypandoc
-PyPDF2
 reportlab
+python-docx
 gunicorn

@@ -1,11 +1,12 @@
 from flask import Flask, request, render_template_string, send_file
-import pypandoc
-import os
-import uuid
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from docx import Document
+import os, uuid
 
 app = Flask(__name__)
 
-# HTML Template (Responsive, Mobile Friendly)
+# HTML UI
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -35,6 +36,37 @@ HTML_TEMPLATE = """
 </html>
 """
 
+def txt_to_pdf(input_path, output_path):
+    with open(input_path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()
+
+    c = canvas.Canvas(output_path, pagesize=letter)
+    width, height = letter
+    y = height - 50
+
+    for line in lines:
+        c.drawString(50, y, line.strip())
+        y -= 15
+        if y < 50:
+            c.showPage()
+            y = height - 50
+    c.save()
+
+def docx_to_pdf(input_path, output_path):
+    doc = Document(input_path)
+    c = canvas.Canvas(output_path, pagesize=letter)
+    width, height = letter
+    y = height - 50
+
+    for para in doc.paragraphs:
+        text = para.text
+        c.drawString(50, y, text)
+        y -= 15
+        if y < 50:
+            c.showPage()
+            y = height - 50
+    c.save()
+
 @app.route("/")
 def home():
     return render_template_string(HTML_TEMPLATE)
@@ -45,16 +77,19 @@ def convert():
     if uploaded_file.filename == "":
         return "❌ No file selected."
 
-    # Save uploaded file temporarily
+    # Temporary save
     input_path = f"/tmp/{uuid.uuid4()}_{uploaded_file.filename}"
     uploaded_file.save(input_path)
-
-    # Output file path
     output_path = input_path.rsplit(".", 1)[0] + ".pdf"
 
+    ext = uploaded_file.filename.lower().split(".")[-1]
     try:
-        # Convert DOCX/TXT to PDF
-        pypandoc.convert_file(input_path, "pdf", outputfile=output_path)
+        if ext == "txt":
+            txt_to_pdf(input_path, output_path)
+        elif ext == "docx":
+            docx_to_pdf(input_path, output_path)
+        else:
+            return "❌ Only .txt and .docx supported."
     except Exception as e:
         return f"⚠️ Conversion failed: {str(e)}"
 
